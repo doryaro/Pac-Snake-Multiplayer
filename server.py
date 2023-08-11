@@ -3,6 +3,8 @@ import tkinter as tk
 import pickle
 import configparser
 import random
+
+from Fence import Fence
 from PowerUp import PowerUp
 from Player import Player
 
@@ -11,6 +13,8 @@ config.read('config.ini')
 board_width = config.getint('Board', 'Width')
 board_height = config.getint('Board', 'Height')
 powerups_color = config.get('Powerups', 'color')
+fences_color = config.get('Fences', 'color')
+fences_width = config.getfloat('Fences', 'width')
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server_socket.bind(('localhost', 12345))
@@ -18,7 +22,8 @@ root = tk.Tk()
 canvas = tk.Canvas(root, width=board_width, height=board_height)
 canvas.pack()
 players_to_dots = {}  # maps players to their dots
-powerups_to_powerups_objects = {}  # numbers to powerups objects
+powerups_to_powerups_objects = {}  # number to powerup objects
+fences_to_fences_objects = {}  # number to fence objects
 
 
 def grow_dot(player: Player, grow_by=3):
@@ -39,6 +44,38 @@ def grow_dot(player: Player, grow_by=3):
             return new_dot_id
     else:
         raise Exception('grow_dot : dot not found')
+
+
+def CreateFences():
+    # Decide the number of fences
+    num_fences = random.randint(3, 6)
+
+    for _ in range(num_fences):
+        # Randomly decide starting and ending coordinates
+        x1 = random.randint(0, 500)
+        y1 = random.randint(0, 500)
+        direction_first = random.choice([-1, 1])
+        direction_second = random.choice([-1, 1])
+
+        # To ensure the fence is of some length, we add a random length to starting coordinates
+        x2 = x1 + (direction_first * random.randint(50, 200))
+        y2 = y1 + (direction_second * random.randint(50, 200))
+
+        # Check if coordinates are outside the canvas
+        # bounds, if so adjust them
+        x2 = min(x2, 500)
+        y2 = min(y2, 500)
+
+        # Draw the fence on the canvas
+        fence_id = canvas.create_line(x1, y1, x2, y2, fill=fences_color, width=fences_width)
+        fence_object = Fence(x1, y1, x2, y2, fences_color)
+        fences_to_fences_objects[fence_id] = [fence_object]
+
+
+def SendFences(address):
+    for fence in fences_to_fences_objects:
+        message = pickle.dumps(('Fences', (fence, fences_to_fences_objects[fence])))
+        server_socket.sendto(message, address)
 
 
 def CreatePowerUps():
@@ -86,6 +123,10 @@ def HandleEncounterPolygon(powerup, player: Player):
     grow_dot(player)
     SendOtherPlayerYouConsumePowerUp(powerup, player)
     powerups_to_powerups_objects.pop(powerup)
+
+
+def HandleEncounterLine(player: Player):
+    SendYouLose(player)
 
 
 def GetDotSize(dot_id):
@@ -166,6 +207,8 @@ def CheckIfEncounterAnything(player):
                 HandleEncounterPolygon(thing, player)
             if item_type == 'oval':  # circle - other player
                 HandleEncounterOval(player, thing)
+            if item_type == 'line':  # line - fences
+                HandleEncounterLine(player)
 
 
 def UpdateForMove(current_player: Player):
@@ -219,6 +262,7 @@ def CreateANewPlayer(data, address):
     send_to = new_player.address
     server_socket.sendto(combine_message, send_to)
     SendPowerUps(send_to)
+    SendFences(send_to)
     SendAllOtherPlayers(address)
     players_to_dots[new_player] = new_player_dot
     return new_player
@@ -237,6 +281,7 @@ def UpdateConnection(new_player):
 def main():
     print('server start')
     CreatePowerUps()
+    CreateFences()
     while True:
         data, address = server_socket.recvfrom(1024)
         print("Received from:", address)
