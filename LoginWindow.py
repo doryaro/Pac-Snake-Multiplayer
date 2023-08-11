@@ -1,5 +1,12 @@
+import string
 import tkinter as tk
 from tkinter import simpledialog, colorchooser, messagebox
+import random
+import matplotlib.pyplot as plt
+
+
+def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
+    return ''.join(random.choice(chars) for _ in range(size))
 
 
 class LoginWindow(tk.Toplevel):
@@ -65,7 +72,20 @@ class LoginWindow(tk.Toplevel):
         print(self.player_name)
 
         if not self.player_name and not self.player_color:
-            messagebox.showerror("Error", "Please input name and choose a color")
+            self.player_name = id_generator()
+            number_of_colors = 8
+
+            # self.player_color = ["#" + ''.join([random.choice('0123456789ABCDEF') for j in range(6)])
+            #                      for i in range(number_of_colors)]
+            self.player_color = "#" + ''.join([random.choice('0123456789ABCDEF') for j in range(6)])
+            print(self.player_color)
+            print(f"finished login window: name = {self.player_name}, color= {self.player_color}")
+            # self.destroy()  # Destroy the LoginWindow
+            self.login_root.destroy()  # Destroy the root window
+
+            #######################################################################################
+            # messagebox.showerror("Error", "Please input name and choose a color")
+            #######################################################################################
             return
         if not self.player_name:
             messagebox.showerror("Error", "Please choose Name")
@@ -76,4 +96,3 @@ class LoginWindow(tk.Toplevel):
         print(f"finished login window: name = {self.player_name}, color= {self.player_color}")
         # self.destroy()  # Destroy the LoginWindow
         self.login_root.destroy()  # Destroy the root window
-

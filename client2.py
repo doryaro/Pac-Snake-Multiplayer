@@ -18,6 +18,9 @@ config.read('config.ini')
 board_width = config.getint('Board', 'Width')
 board_height = config.getint('Board', 'Height')
 powerups_color = config.get('Powerups', 'color')
+fences_color = config.get('Fences', 'color')
+fences_width = config.getfloat('Fences', 'width')
+
 root: tkinter.Tk
 canvas: tkinter.Canvas
 
@@ -28,6 +31,8 @@ my_name = None  # chosen name
 players_to_dots = {}  # maps players to their dots - only others
 powerups_to_powerups_objects = {}  # numbers to powerups objects
 server_powerup_to_player_powerup = {}  # int to int
+fences_to_fences_object = {}  # number to fence objects
+server_fences_to_player_fences = {}  # int to int
 
 
 def move_dot(client_socket, event, player_dot, server_address):
@@ -55,6 +60,15 @@ def AssemblePowerUps(powerup_tuple):
     player_powerup = canvas.create_polygon(powerup_object.x1, powerup_object.y1, powerup_object.x2, powerup_object.y2,
                                            powerup_object.x3, powerup_object.y3, fill=powerups_color)
     server_powerup_to_player_powerup[server_powerup] = player_powerup
+
+
+def AssembleFences(fences_tuple):
+    print(fences_tuple)
+    server_fences = fences_tuple[0]
+    fences_object = fences_tuple[1][0]
+    player_fences = canvas.create_line(fences_object.x1, fences_object.y1, fences_object.x2, fences_object.y2, fill=fences_color, width=fences_width)
+    server_fences_to_player_fences[server_fences] = player_fences
+
 
 
 def CreateNewOtherPlayer(other_player: Player):
@@ -171,6 +185,8 @@ def listen_to_server(client_socket, a):
             OtherConsumePowerUp(data_object)
         elif data_message.startswith('PowerUps'):
             AssemblePowerUps(data_object)
+        elif data_message.startswith('Fences'):
+            AssembleFences(data_object)
         elif data_message.startswith('Update: a new player connected'):
             CreateNewOtherPlayer(data_object)
         elif data_message.startswith('Get: other player'):
