@@ -1,5 +1,6 @@
 import random
 import threading
+import time
 import tkinter
 import tkinter as tk
 import socket
@@ -8,9 +9,11 @@ import configparser
 from tkinter import messagebox
 from tkinter import simpledialog, colorchooser
 from LoginWindow import LoginWindow
+from itertools import cycle
 
 from PowerUp import PowerUp
 from Player import Player
+from SpeedBoostPowerUp import SpeedBoostPowerUp
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -20,6 +23,8 @@ board_height = config.getint('Board', 'Height')
 powerups_color = config.get('Powerups', 'color')
 fences_color = config.get('Fences', 'color')
 fences_width = config.getfloat('Fences', 'width')
+speed_boost_PowerUp_color_inside = config.get('SpeedBoostPowerUp', 'color_inside')
+speed_boost_PowerUp_color_outside = config.get('SpeedBoostPowerUp', 'color_outside')
 
 root: tkinter.Tk
 canvas: tkinter.Canvas
@@ -27,25 +32,30 @@ canvas: tkinter.Canvas
 my_dot = None  # my dot id
 my_color = None  # my dot color
 my_name = None  # chosen name
+my_speed = 1
 
 players_to_dots = {}  # maps players to their dots - only others
 powerups_to_powerups_objects = {}  # numbers to powerups objects
+speed_powerups_to_speed_powerups_objects = {}  # numbers to speed powerups objects
 server_powerup_to_player_powerup = {}  # int to int
 fences_to_fences_object = {}  # number to fence objects
 server_fences_to_player_fences = {}  # int to int
+speed_boost_to_speed_boost_object = {}  # number to speed_boost objects
+server_speed_boost_to_player_speed_boost = {}  # int to int
 
 
 def move_dot(client_socket, event, player_dot, server_address):
+    global my_speed
     x, y = canvas.coords(player_dot)[:2]  # Get current position
     dx, dy = 0, 0
     if event.keysym == 'Up':
-        dy = -10
+        dy = (-10 * my_speed)
     elif event.keysym == 'Down':
-        dy = 10
+        dy = (10 * my_speed)
     elif event.keysym == 'Left':
-        dx = -10
+        dx = (-10 * my_speed)
     elif event.keysym == 'Right':
-        dx = 10
+        dx = (10 * my_speed)
     x += dx
     y += dy
     message = f"move,{x},{y}"
@@ -54,7 +64,7 @@ def move_dot(client_socket, event, player_dot, server_address):
 
 
 def AssemblePowerUps(powerup_tuple):
-    print(powerup_tuple)
+    print(f"powerup = {powerup_tuple}")
     server_powerup = powerup_tuple[0]
     powerup_object = powerup_tuple[1][0]
     player_powerup = canvas.create_polygon(powerup_object.x1, powerup_object.y1, powerup_object.x2, powerup_object.y2,
@@ -63,12 +73,25 @@ def AssemblePowerUps(powerup_tuple):
 
 
 def AssembleFences(fences_tuple):
-    print(fences_tuple)
+    print(f"fences_tuple = {fences_tuple}")
     server_fences = fences_tuple[0]
     fences_object = fences_tuple[1][0]
-    player_fences = canvas.create_line(fences_object.x1, fences_object.y1, fences_object.x2, fences_object.y2, fill=fences_color, width=fences_width)
+    player_fences = canvas.create_line(fences_object.x1, fences_object.y1, fences_object.x2, fences_object.y2,
+                                       fill=fences_color, width=fences_width)
     server_fences_to_player_fences[server_fences] = player_fences
 
+
+def AssembleSpeedBoost(speed_boost_tuple):
+    print(speed_boost_tuple)
+    server_speed_boost = speed_boost_tuple[0]
+    speed_boost_object = speed_boost_tuple[1][0]
+    x = speed_boost_object.x
+    y = speed_boost_object.y
+    speed_boost_object = SpeedBoostPowerUp(x, y, speed_boost_PowerUp_color_inside, speed_boost_PowerUp_color_outside)
+    points = speed_boost_object.get_points_for_polygon()
+    player_speed_boost = canvas.create_polygon(points, fill=speed_boost_object.color_inside,
+                                               outline=speed_boost_object.color_outside)
+    server_speed_boost_to_player_speed_boost[server_speed_boost] = player_speed_boost
 
 
 def CreateNewOtherPlayer(other_player: Player):
@@ -125,7 +148,7 @@ def YouConsumePowerUp(powerup_tuple):
     powerup_object = powerup_tuple[1][0]
     player_power_up = server_powerup_to_player_powerup[server_powerup]
     canvas.delete(player_power_up)
-    my_dot = grow_dot(my_dot , my_color)
+    my_dot = grow_dot(my_dot, my_color)
 
 
 def OtherConsumePowerUp(other_player_powerup_tuple):
@@ -139,6 +162,47 @@ def OtherConsumePowerUp(other_player_powerup_tuple):
         if player.address == other_player.address:
             players_to_dots[other_player] = grow_dot(players_to_dots[player], other_player.color)
             break
+
+
+def IncreaseSpeed():
+    global my_speed
+    my_speed += 0.75
+
+
+def animate_explosion(x, y, explosion_cycle):
+    try:
+        frame = next(explosion_cycle)
+        explosion = canvas.create_image(x, y, image=frame)
+        root.after(35, lambda: canvas.delete(explosion))
+        root.after(35, animate_explosion, x, y, explosion_cycle)
+    except StopIteration:
+        # Once all frames have been shown, stop the animation.
+        pass
+
+
+def YouConsumeSpeedPowerUp(speed_powerup_tuple):
+    global my_dot
+    print(speed_powerup_tuple)
+    print(canvas.find_all())
+    server_speed_powerup = speed_powerup_tuple[0]
+    speed_powerup_object = speed_powerup_tuple[1][0]
+    print(server_speed_boost_to_player_speed_boost)
+    player_speed_power_up = server_speed_boost_to_player_speed_boost[server_speed_powerup]
+    canvas.delete(player_speed_power_up)
+    IncreaseSpeed()
+
+
+def OtherConsumeSpeedPowerUp(other_player_speed_powerup_tuple):
+    print(other_player_speed_powerup_tuple)
+    other_player = other_player_speed_powerup_tuple[0]
+    server_speed_powerup = other_player_speed_powerup_tuple[1][0]
+    speed_powerup_object = other_player_speed_powerup_tuple[1][1][0]
+    speed_powerup = server_speed_boost_to_player_speed_boost[server_speed_powerup]
+    canvas.delete(speed_powerup)
+    # for player in players_to_dots:
+    #     if player.address == other_player.address:
+    #         players_to_dots[other_player] = grow_dot(players_to_dots[player], other_player.color)
+    #         break
 
 
 def YouLose(data_object):
@@ -165,6 +229,24 @@ def PlayerDied(died_player: Player):
             canvas.delete(died_player_dot)
 
 
+def PlayerOverSpeed(died_player: Player):
+    for player in list(players_to_dots.keys()):
+        if player.address == died_player.address:
+            died_player_dot = players_to_dots.pop(player)
+            canvas.delete(died_player_dot)
+            explosion_frames = [tk.PhotoImage(file=f"ExplosionAnimation\\explosion{i}.png") for i in range(1, 49)]
+            explosion_cycle = iter(explosion_frames)
+            animate_explosion(died_player.position_x, died_player.position_y, explosion_cycle)
+
+
+def YouOverSpeed(player: Player):
+    explosion_frames = [tk.PhotoImage(file=f"ExplosionAnimation\\explosion{i}.png") for i in range(1, 49)]
+    explosion_cycle = iter(explosion_frames)
+    animate_explosion(player.position_x,player.position_y,explosion_cycle)
+    messagebox.showinfo("Game Over", "You have been fried")
+    root.destroy()
+
+
 def PlayerGrow(kill_player: Player):
     for player in list(players_to_dots.keys()):
         if player.address == kill_player.address:
@@ -183,10 +265,16 @@ def listen_to_server(client_socket, a):
             YouConsumePowerUp(data_object)
         elif data_message.startswith('Other Consume PowerUps'):
             OtherConsumePowerUp(data_object)
+        elif data_message.startswith('You Consume SpeedPowerUps'):
+            YouConsumeSpeedPowerUp(data_object)
+        elif data_message.startswith('Other Consume SpeedPowerUps'):
+            OtherConsumeSpeedPowerUp(data_object)
         elif data_message.startswith('PowerUps'):
             AssemblePowerUps(data_object)
         elif data_message.startswith('Fences'):
             AssembleFences(data_object)
+        elif data_message.startswith('Speed_boost'):
+            AssembleSpeedBoost(data_object)
         elif data_message.startswith('Update: a new player connected'):
             CreateNewOtherPlayer(data_object)
         elif data_message.startswith('Get: other player'):
@@ -197,6 +285,10 @@ def listen_to_server(client_socket, a):
             PlayerGrow(data_object)
         elif data_message.startswith('Player died'):
             PlayerDied(data_object)
+        elif data_message.startswith('You OverSpeed'):
+            YouOverSpeed(data_object)
+        elif data_message.startswith('Player OverSpeed'):
+            PlayerOverSpeed(data_object)
         elif data_message.startswith('Kill Player'):
             KillPlayer(data_object)
         elif data_message.startswith('You Lose'):
@@ -231,7 +323,6 @@ def main():
     root = tk.Tk()
     canvas = tk.Canvas(root, width=board_width, height=board_height)
     canvas.pack()
-
     x = int((random.randint(0, int(800 / 10))) * 10)
     y = int((random.randint(0, int(600 / 10))) * 10)
     my_dot = canvas.create_oval(50, 50, 60, 60, fill=my_color)

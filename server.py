@@ -1,4 +1,5 @@
 import socket
+import time
 import tkinter as tk
 import pickle
 import configparser
@@ -7,6 +8,7 @@ import random
 from Fence import Fence
 from PowerUp import PowerUp
 from Player import Player
+from SpeedBoostPowerUp import SpeedBoostPowerUp
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -15,6 +17,8 @@ board_height = config.getint('Board', 'Height')
 powerups_color = config.get('Powerups', 'color')
 fences_color = config.get('Fences', 'color')
 fences_width = config.getfloat('Fences', 'width')
+speed_boost_PowerUp_color_inside = config.get('SpeedBoostPowerUp', 'color_inside')
+speed_boost_PowerUp_color_outside = config.get('SpeedBoostPowerUp', 'color_outside')
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server_socket.bind(('localhost', 12345))
@@ -24,6 +28,7 @@ canvas.pack()
 players_to_dots = {}  # maps players to their dots
 powerups_to_powerups_objects = {}  # number to powerup objects
 fences_to_fences_objects = {}  # number to fence objects
+speed_boost_to_speed_boost_objects = {}  # number to speed_boost objects
 
 
 def grow_dot(player: Player, grow_by=3):
@@ -52,8 +57,8 @@ def CreateFences():
 
     for _ in range(num_fences):
         # Randomly decide starting and ending coordinates
-        x1 = random.randint(0, 500)
-        y1 = random.randint(0, 500)
+        x1 = random.randint(0, board_width)
+        y1 = random.randint(0, board_height)
         direction_first = random.choice([-1, 1])
         direction_second = random.choice([-1, 1])
 
@@ -63,8 +68,8 @@ def CreateFences():
 
         # Check if coordinates are outside the canvas
         # bounds, if so adjust them
-        x2 = min(x2, 500)
-        y2 = min(y2, 500)
+        x2 = min(x2, board_width)
+        y2 = min(y2, board_height)
 
         # Draw the fence on the canvas
         fence_id = canvas.create_line(x1, y1, x2, y2, fill=fences_color, width=fences_width)
@@ -72,9 +77,28 @@ def CreateFences():
         fences_to_fences_objects[fence_id] = [fence_object]
 
 
+def CreateSpeedBoostPowerUps():
+    num_speed_boost = random.randint(2, 3)
+    for _ in range(num_speed_boost):
+        x = random.randint(0, board_width)
+        y = random.randint(0, board_height)
+        speed_boost_object = SpeedBoostPowerUp(x, y, speed_boost_PowerUp_color_inside,
+                                               speed_boost_PowerUp_color_outside)
+        points = speed_boost_object.get_points_for_polygon()
+        speed_boost_id = canvas.create_polygon(points, fill=speed_boost_PowerUp_color_inside,
+                                               outline=speed_boost_PowerUp_color_outside)
+        speed_boost_to_speed_boost_objects[speed_boost_id] = [speed_boost_object]
+
+
 def SendFences(address):
     for fence in fences_to_fences_objects:
         message = pickle.dumps(('Fences', (fence, fences_to_fences_objects[fence])))
+        server_socket.sendto(message, address)
+
+
+def SendSpeedBoost(address):
+    for speed_boost in speed_boost_to_speed_boost_objects:
+        message = pickle.dumps(('Speed_boost', (speed_boost, speed_boost_to_speed_boost_objects[speed_boost])))
         server_socket.sendto(message, address)
 
 
@@ -84,8 +108,8 @@ def CreatePowerUps():
     # Create the powerups
     for _ in range(num_powerups):
         # Randomly position the powerup
-        x1 = random.randint(0, 800)
-        y1 = random.randint(0, 600)
+        x1 = random.randint(0, board_width)
+        y1 = random.randint(0, board_height)
         x2 = x1 + 10
         y2 = y1
         x3 = x1 + 5
@@ -116,13 +140,61 @@ def SendOtherPlayerYouConsumePowerUp(powerup, curr_player):
             server_socket.sendto(message, player.address)
 
 
-def HandleEncounterPolygon(powerup, player: Player):
+def HandleEncounterPowerUp(powerup, player: Player):
     message = pickle.dumps(('You Consume PowerUps', (powerup, powerups_to_powerups_objects[powerup])))
     server_socket.sendto(message, player.address)
     canvas.delete(powerup)
     grow_dot(player)
     SendOtherPlayerYouConsumePowerUp(powerup, player)
     powerups_to_powerups_objects.pop(powerup)
+
+
+def SendOtherPlayerYouConsumeSpeedPowerUp(speed_powerup, curr_player):
+    for player in players_to_dots:
+        if player.address != curr_player.address:
+            message = pickle.dumps(
+                ('Other Consume SpeedPowerUps', (curr_player, (speed_powerup, speed_boost_to_speed_boost_objects[speed_powerup]))))
+            server_socket.sendto(message, player.address)
+
+
+def SendOtherYouOverSpeed(died_player:Player):
+    for player in players_to_dots:
+        if player.address != died_player.address:
+            message = pickle.dumps(('Player OverSpeed', died_player))
+            server_socket.sendto(message, player.address)
+
+
+def KillOverSpeedPlayer(player : Player):
+    message = pickle.dumps(('You OverSpeed', player))
+    server_socket.sendto(message, player.address)
+    for key,value in dict(players_to_dots).items():
+        if key.address == player.address:
+            players_to_dots.pop(key)
+    SendOtherYouOverSpeed(player)
+
+def HandleEncounterSpeedPowerUp(speed_powerup, player: Player):
+    print(speed_powerup)
+    message = pickle.dumps(
+        ('You Consume SpeedPowerUps', (speed_powerup, speed_boost_to_speed_boost_objects[speed_powerup])))
+    server_socket.sendto(message, player.address)
+    canvas.delete(speed_powerup)
+    # IncreaseSpeed
+    SendOtherPlayerYouConsumeSpeedPowerUp(speed_powerup, player)
+    speed_boost_to_speed_boost_objects.pop(speed_powerup)
+    if player.speed > 1:
+        KillOverSpeedPlayer(player)
+    else:
+        player.speed += 0.75
+
+
+def HandleEncounterPolygon(powerup, player: Player):
+    if powerup in powerups_to_powerups_objects:
+        HandleEncounterPowerUp(powerup, player)
+        return
+    if powerup in speed_boost_to_speed_boost_objects:
+        HandleEncounterSpeedPowerUp(powerup, player)
+        return
+    raise Exception('dont find a powerup or speed_powerup')
 
 
 def HandleEncounterLine(player: Player):
@@ -203,6 +275,7 @@ def CheckIfEncounterAnything(player):
     for thing in items_overlapping:
         if thing != player_dot:
             item_type = canvas.type(thing)
+            print(item_type)
             if item_type == 'polygon':  # triangle - powerup
                 HandleEncounterPolygon(thing, player)
             if item_type == 'oval':  # circle - other player
@@ -263,6 +336,7 @@ def CreateANewPlayer(data, address):
     server_socket.sendto(combine_message, send_to)
     SendPowerUps(send_to)
     SendFences(send_to)
+    SendSpeedBoost(send_to)
     SendAllOtherPlayers(address)
     players_to_dots[new_player] = new_player_dot
     return new_player
@@ -282,6 +356,7 @@ def main():
     print('server start')
     CreatePowerUps()
     CreateFences()
+    CreateSpeedBoostPowerUps()
     while True:
         data, address = server_socket.recvfrom(1024)
         print("Received from:", address)
@@ -291,7 +366,7 @@ def main():
         if address not in all_addresses:
             new_player = CreateANewPlayer(data.decode('utf-8'), address)
             UpdateConnection(new_player)
-
+            continue
         message = data.decode('utf-8').split(',')
         command = message[0]
         player = FindPlayerWithAddress(address)
