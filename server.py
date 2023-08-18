@@ -29,6 +29,9 @@ players_to_dots = {}  # maps players to their dots
 powerups_to_powerups_objects = {}  # number to powerup objects
 fences_to_fences_objects = {}  # number to fence objects
 speed_boost_to_speed_boost_objects = {}  # number to speed_boost objects
+flame_id: int = None
+flame_pos_x :int = None
+flame_pos_y :int = None
 
 
 def grow_dot(player: Player, grow_by=3):
@@ -100,6 +103,19 @@ def SendSpeedBoost(address):
     for speed_boost in speed_boost_to_speed_boost_objects:
         message = pickle.dumps(('Speed_boost', (speed_boost, speed_boost_to_speed_boost_objects[speed_boost])))
         server_socket.sendto(message, address)
+
+
+def CreateFlame():
+    global flame_pos_x
+    global flame_pos_y
+    global flame_id
+    flame_pos_x = random.randint(50, board_width-50)
+    flame_pos_y = random.randint(50, board_height-50)
+    flame_id = canvas.create_image(flame_pos_x, flame_pos_y, image=tk.PhotoImage(file=f"Animation\\Flames\\2.png"), tags='flame')
+
+def SendFlame(address):
+    message = pickle.dumps(('Flame', (flame_pos_x,flame_pos_y)))
+    server_socket.sendto(message, address)
 
 
 def CreatePowerUps():
@@ -268,6 +284,31 @@ def HandleEncounterOval(player, other_player_dot):
                 SendYouWin(other_player, player)
 
 
+
+def SendOtherYouTouchFlame(died_player:Player):
+    for player in players_to_dots:
+        if player.address != died_player.address:
+            message = pickle.dumps(('Player TouchFlame', died_player))
+            server_socket.sendto(message, player.address)
+
+def KillTouchFlame(player : Player):
+    message = pickle.dumps(('You TouchFlame', player))
+    server_socket.sendto(message, player.address)
+    for key,value in dict(players_to_dots).items():
+        if key.address == player.address:
+            players_to_dots.pop(key)
+    SendOtherYouTouchFlame(player)
+
+
+def HandleEncounterFlame(player):
+    KillTouchFlame(player)
+
+
+def HandleEncounterImage(player):
+    HandleEncounterFlame(player)
+
+
+
 def CheckIfEncounterAnything(player):
     player_dot = players_to_dots[player]
     dot_coords = canvas.coords(player_dot)
@@ -282,6 +323,8 @@ def CheckIfEncounterAnything(player):
                 HandleEncounterOval(player, thing)
             if item_type == 'line':  # line - fences
                 HandleEncounterLine(player)
+            if item_type == 'image':  # image - flame
+                HandleEncounterImage(player)
 
 
 def UpdateForMove(current_player: Player):
@@ -337,6 +380,7 @@ def CreateANewPlayer(data, address):
     SendPowerUps(send_to)
     SendFences(send_to)
     SendSpeedBoost(send_to)
+    SendFlame(send_to)
     SendAllOtherPlayers(address)
     players_to_dots[new_player] = new_player_dot
     return new_player
@@ -357,6 +401,7 @@ def main():
     CreatePowerUps()
     CreateFences()
     CreateSpeedBoostPowerUps()
+    CreateFlame()
     while True:
         data, address = server_socket.recvfrom(1024)
         print("Received from:", address)

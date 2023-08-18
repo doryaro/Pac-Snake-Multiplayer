@@ -42,7 +42,8 @@ fences_to_fences_object = {}  # number to fence objects
 server_fences_to_player_fences = {}  # int to int
 speed_boost_to_speed_boost_object = {}  # number to speed_boost objects
 server_speed_boost_to_player_speed_boost = {}  # int to int
-
+flame_pos_x = 100
+flame_pos_y = 100
 
 def move_dot(client_socket, event, player_dot, server_address):
     global my_speed
@@ -180,6 +181,17 @@ def animate_explosion(x, y, explosion_cycle):
         pass
 
 
+def animate_lighting(x, y, lighting_iter):
+    try:
+        frame = next(lighting_iter)
+        explosion = canvas.create_image(x, y, image=frame)
+        root.after(30, lambda: canvas.delete(explosion))
+        root.after(30, animate_lighting, x, y, lighting_iter)
+    except StopIteration:
+        # Once all frames have been shown, stop the animation.
+        pass
+
+
 def YouConsumeSpeedPowerUp(speed_powerup_tuple):
     global my_dot
     print(speed_powerup_tuple)
@@ -234,16 +246,40 @@ def PlayerOverSpeed(died_player: Player):
         if player.address == died_player.address:
             died_player_dot = players_to_dots.pop(player)
             canvas.delete(died_player_dot)
-            explosion_frames = [tk.PhotoImage(file=f"ExplosionAnimation\\explosion{i}.png") for i in range(1, 49)]
-            explosion_cycle = iter(explosion_frames)
-            animate_explosion(died_player.position_x, died_player.position_y, explosion_cycle)
+            # explosion_frames = [tk.PhotoImage(file=f"Animation\\Explosion\\explosion{i}.png") for i in range(1, 49)]
+            lighting_frames = [tk.PhotoImage(file=f"Animation\\Lighting\\lightning{i}.png") for i in range(1, 93)]
+
+            lighting_iter = iter(lighting_frames)
+            animate_lighting(died_player.position_x, died_player.position_y, lighting_iter)
 
 
 def YouOverSpeed(player: Player):
-    explosion_frames = [tk.PhotoImage(file=f"ExplosionAnimation\\explosion{i}.png") for i in range(1, 49)]
-    explosion_cycle = iter(explosion_frames)
-    animate_explosion(player.position_x,player.position_y,explosion_cycle)
-    messagebox.showinfo("Game Over", "You have been fried")
+    # explosion_frames = [tk.PhotoImage(file=f"Animation\\Explosion\\explosion{i}.png") for i in range(1, 49)]
+    canvas.unbind_all('<KeyPress>')
+    lighting_frames = [tk.PhotoImage(file=f"Animation\\Lighting\\lightning{i}.png") for i in range(1, 93)]
+
+    lighting_iter = iter(lighting_frames)
+    animate_lighting(player.position_x, player.position_y, lighting_iter)
+    messagebox.showinfo("Game Over", "You got electrocuted")
+    root.destroy()
+
+
+def PlayerTouchFlame(died_player: Player):
+    for player in list(players_to_dots.keys()):
+        if player.address == died_player.address:
+            died_player_dot = players_to_dots.pop(player)
+            canvas.delete(died_player_dot)
+            explosion_frames = [tk.PhotoImage(file=f"Animation\\Explosion\\explosion{i}.png") for i in range(1, 49)]
+
+            explosion_iter = iter(explosion_frames)
+            animate_explosion(died_player.position_x, died_player.position_y, explosion_iter)
+
+def YouTouchFlame(player: Player):
+    canvas.unbind_all('<KeyPress>')
+    explosion_frames = [tk.PhotoImage(file=f"Animation\\Explosion\\explosion{i}.png") for i in range(1, 49)]
+    explosion_iter = iter(explosion_frames)
+    animate_explosion(player.position_x, player.position_y, explosion_iter)
+    messagebox.showinfo("Game Over", "You exploded")
     root.destroy()
 
 
@@ -273,6 +309,8 @@ def listen_to_server(client_socket, a):
             AssemblePowerUps(data_object)
         elif data_message.startswith('Fences'):
             AssembleFences(data_object)
+        elif data_message.startswith('Flame'):
+            AssembleFlame(data_object)
         elif data_message.startswith('Speed_boost'):
             AssembleSpeedBoost(data_object)
         elif data_message.startswith('Update: a new player connected'):
@@ -289,6 +327,10 @@ def listen_to_server(client_socket, a):
             YouOverSpeed(data_object)
         elif data_message.startswith('Player OverSpeed'):
             PlayerOverSpeed(data_object)
+        elif data_message.startswith('You TouchFlame'):
+            YouTouchFlame(data_object)
+        elif data_message.startswith('Player TouchFlame'):
+            PlayerTouchFlame(data_object)
         elif data_message.startswith('Kill Player'):
             KillPlayer(data_object)
         elif data_message.startswith('You Lose'):
@@ -313,16 +355,48 @@ def Login():
         raise Exception('exit game')
 
 
+flame_cycle = None
+
+
+
+def animate_flame():
+    global flame_cycle
+    img = next(flame_cycle)
+    canvas.delete('flame')  # remove the previous flame image
+    canvas.create_image(flame_pos_x, flame_pos_y, image=img, tags='flame')
+    time.sleep(1)
+    root.after(1000, animate_flame())  # continue the animation
+
+def AssembleFlame(flame_tuple):
+    global flame_pos_x
+    global flame_pos_y
+    global flame_cycle
+    flame_pos_x = flame_tuple[0]
+    flame_pos_y = flame_tuple[1]
+    flame_images = [tk.PhotoImage(file=f"Animation\\Flames\\{i}.png") for i in range(1,5)]
+    flame_cycle = cycle(flame_images)
+    threading.Thread(target=animate_flame, daemon=True).start()
+
 def main():
     global my_dot
     global my_color
     global my_name
     global root
     global canvas
+    global flame_cycle
     my_name, my_color = Login()
     root = tk.Tk()
     canvas = tk.Canvas(root, width=board_width, height=board_height)
     canvas.pack()
+    # Load your flame images
+    # flame_images = [tk.PhotoImage(file=f"Animation\\Explosion\\explosion{i}.png") for i in range(10, 31, 10)]
+    # flame_cycle = cycle(flame_images)
+    # threading.Thread(target=animate_flame, daemon=True).start()
+
+    # animate_flame()
+    # Position for the flaming area
+    x, y = 400, 300  # example position
+
     x = int((random.randint(0, int(800 / 10))) * 10)
     y = int((random.randint(0, int(600 / 10))) * 10)
     my_dot = canvas.create_oval(50, 50, 60, 60, fill=my_color)
